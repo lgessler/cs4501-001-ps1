@@ -42,10 +42,13 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
-var a = flag.String("toaddress", "", "The address to send Bitcoin to.")
-var k = flag.String("privkey", "", "The private key of the input tx.")
-var t = flag.String("txid", "", "The transaction id corresponding to the funding Bitcoin transaction.")
-var v = flag.Int("vout", -1, "The index into the funding transaction.")
+var toaddress = flag.String("toaddress", "", "The address to send Bitcoin to.")
+var privkey = flag.String("privkey", "", "The private key of the input tx.")
+var txid = flag.String("txid", "", "The transaction id corresponding to the funding Bitcoin transaction.")
+var vout = flag.Int("vout", -1, "The index into the funding transaction.")
+
+// Use 10,000 satoshi as the standard transaction fee. 
+const TX_FEE = 10000
 
 type requiredArgs struct {
 	txid      *wire.ShaHash
@@ -58,8 +61,8 @@ type requiredArgs struct {
 // address are present and correctly formatted.
 func getArgs() requiredArgs {
 	flag.Parse()
-	if *a == "" || *k == "" || *t == "" || *v == -1 {
-		fmt.Println("\nThis program generates a bitcoin transaction that moves coins from an input to an output.\n" +
+	if *toaddress == "" || *privkey == "" || *txid == "" || *vout == -1 {
+		fmt.Println("\nThis program generates a bitcoin trans action that moves coins from an input to an output.\n" +
 			"You must provide a key, a receiving address, a transaction id (the hash\n" +
 			"of a tx) and the index into the outputs of that tx that fund your\n" +
 			"address. Use http://blockchain.info/pushtx to send the raw transaction.\n")
@@ -68,24 +71,29 @@ func getArgs() requiredArgs {
 		os.Exit(0)
 	}
 
-	pkBytes, err := hex.DecodeString(*k)
-	if err != nil {
-		log.Fatal(err)
-	}
-	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), pkBytes)
-
-	addr, err := btcutil.DecodeAddress(*a, &chaincfg.MainNetParams)
+	pkBytes, err := hex.DecodeString(*privkey)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	txid, err := wire.NewShaHashFromStr(*t)
+	// PrivKeyFromBytes returns public key as a separate result, but can ignore it here.
+	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), pkBytes)
+
+	addr, err := btcutil.DecodeAddress(*toaddress, &chaincfg.MainNetParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	txid, err := wire.NewShaHashFromStr(*txid)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	args := requiredArgs{
 		txid:      txid,
-		vout:      uint32(*v),
+		vout:      uint32(*vout),
 		toAddress: addr,
-		privKey:   privKey,
+		privKey:   key,
 	}
 
 	return args
@@ -202,13 +210,10 @@ func createTxIn(outpoint *wire.OutPoint) *wire.TxIn {
 	return txin
 }
 
-// createTxOut generates a TxOut can be added to a transaction. Instead of sending
-// every coin in the txin to the target address, a fee 10,000 Satoshi is set aside.
-// If this fee is left out then, nodes on the network will ignore the transaction,
-// since they would otherwise be providing you a service for free.
+// createTxOut generates a TxOut that can be added to a transaction. 
 func createTxOut(inCoin int64, addr btcutil.Address) *wire.TxOut {
 	// Pay the minimum network fee so that nodes will broadcast the tx.
-	outCoin := inCoin - 10000
+	outCoin := inCoin - TX_FEE
 	// Take the address and generate a PubKeyScript out of it
 	script, err := txscript.PayToAddrScript(addr)
 	if err != nil {
@@ -257,6 +262,10 @@ type sendTxJson struct {
 
 // broadcastTx tries to send the transaction using an api that will broadcast
 // a submitted transaction on behalf of the user.
+//
+// The transaction is broadcast to the bitcoin network using this API:
+//    https://github.com/bitpay/insight-api
+// 
 func broadcastTx(tx *wire.MsgTx) {
 	buf := bytes.NewBuffer(make([]byte, 0, tx.SerializeSize()))
 	tx.Serialize(buf)
@@ -265,6 +274,7 @@ func broadcastTx(tx *wire.MsgTx) {
 	url := "https://insight.bitpay.com/api/tx/send"
 	contentType := "application/json"
 
+	fmt.Printf("Sending transaction to: %s\n", url)
 	sendTxJson := &sendTxJson{RawTx: hexstr}
 	j, err := json.Marshal(sendTxJson)
 	if err != nil {
