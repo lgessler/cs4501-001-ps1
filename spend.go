@@ -192,7 +192,9 @@ func main() {
 
 	// Create the TxOut
 	txout := createTxOut(oldTxOut.Value, reqArgs.toAddress)
+	txrem := createTxRemainder(oldTxOut.Value)
 	tx.AddTxOut(txout)
+  tx.AddTxOut(txrem)
 
 	// Generate a signature over the whole tx.
 	sig := generateSig(tx, reqArgs.privKey, oldTxOut.PkScript)
@@ -218,7 +220,6 @@ func createTxIn(outpoint *wire.OutPoint) *wire.TxIn {
 func createTxOut(inCoin int64, addr btcutil.Address) *wire.TxOut {
 	// Pay the minimum network fee so that nodes will broadcast the tx.
 	outCoin := *amount
-  fmt.Printf("inCoin: %v", inCoin)
   if outCoin == 0 {
     log.Fatal("You probably don't want to transfer 0 satoshis")
   }
@@ -234,6 +235,47 @@ func createTxOut(inCoin int64, addr btcutil.Address) *wire.TxOut {
 	txout := wire.NewTxOut(outCoin, script)
 	return txout
 }
+
+func createTxRemainder(inCoin int64) *wire.TxOut {
+  remainder := inCoin - *amount - TX_FEE
+
+  // Put the remainder back in our wallet
+	pkBytes, err := hex.DecodeString(*privkey)
+	if err != nil {
+		log.Fatal(err)
+	}
+  // Get pubkey object
+	_, pubkey := btcec.PrivKeyFromBytes(btcec.S256(), pkBytes)
+
+  // Get an address object from WIF string
+  changeAddress := generateAddr(pubkey)
+
+  script, err := txscript.PayToAddrScript(changeAddress)
+  if err != nil {
+    log.Fatal(err)
+  }
+  remtx := wire.NewTxOut(remainder, script)
+  return remtx
+}
+
+//taken from address.go
+func generateAddr(pub *btcec.PublicKey) *btcutil.AddressPubKeyHash {
+
+  net := &chaincfg.MainNetParams
+
+  // Serialize the public key into bytes and then run ripemd160(sha256(b)) on it
+  b := btcutil.Hash160(pub.SerializeCompressed())
+
+  // Convert the hashed public key into the btcsuite type so that the library
+  // will handle the base58 encoding when we call addr.String()
+  addr, err := btcutil.NewAddressPubKeyHash(b, net)
+  if err != nil {
+    log.Fatal(err)
+  }
+
+  return addr
+}
+
 
 // generateSig requires a transaction, a private key, and the bytes of the raw
 // scriptPubKey. It will then generate a signature over all of the outputs of
