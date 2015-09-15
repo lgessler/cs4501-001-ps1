@@ -83,7 +83,7 @@ func generateAddr(pub *btcec.PublicKey) *btcutil.AddressPubKeyHash {
 func main() {
   // In order to recieve coins we must generate a public/private key pair.
   //pub, priv := generateKeyPair()
-  pat := ".*[0-9]l[0-9].*"
+  pat := ".*[0-9]Luke[0-9].*"
   pub, priv := generateVanityAddress(pat)
 
   // To use this address we must store our private key somewhere. Everything

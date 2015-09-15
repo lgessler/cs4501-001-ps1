@@ -46,6 +46,7 @@ var toaddress = flag.String("toaddress", "", "The address to send Bitcoin to.")
 var privkey = flag.String("privkey", "", "The private key of the input tx.")
 var txid = flag.String("txid", "", "The transaction id corresponding to the funding Bitcoin transaction.")
 var vout = flag.Int("vout", -1, "The index into the funding transaction.")
+var amount = flag.Int64("amount", -1, "The number of satoshis for the transaction" )
 
 // Use 10,000 satoshi as the standard transaction fee. 
 const TX_FEE = 10000
@@ -55,17 +56,19 @@ type requiredArgs struct {
 	vout      uint32
 	toAddress btcutil.Address
 	privKey   *btcec.PrivateKey
+  amount    int64
 }
 
 // getArgs parses command line args and asserts that a private key and an
 // address are present and correctly formatted.
 func getArgs() requiredArgs {
 	flag.Parse()
-	if *toaddress == "" || *privkey == "" || *txid == "" || *vout == -1 {
+	if *toaddress == "" || *privkey == "" || *txid == "" || *vout == -1 || *amount == -1 {
 		fmt.Println("\nThis program generates a bitcoin trans action that moves coins from an input to an output.\n" +
 			"You must provide a key, a receiving address, a transaction id (the hash\n" +
-			"of a tx) and the index into the outputs of that tx that fund your\n" +
-			"address. Use http://blockchain.info/pushtx to send the raw transaction.\n")
+			"of a tx), the amount to be transferred (in satoshis), and the index into\n" +
+      "the outputs of that tx that fund your address. Use http://blockchain.info/pushtx\n" +
+			"to send the raw transaction.\n")
 		flag.PrintDefaults()
 		fmt.Println("")
 		os.Exit(0)
@@ -94,6 +97,7 @@ func getArgs() requiredArgs {
 		vout:      uint32(*vout),
 		toAddress: addr,
 		privKey:   key,
+    amount:    int64(*amount),
 	}
 
 	return args
@@ -198,7 +202,7 @@ func main() {
 	dumpHex(tx)
 
 	// Send the transaction to the network
-	broadcastTx(tx)
+  broadcastTx(tx)
 }
 
 // createTxIn pulls the outpoint out of the funding TxOut and uses it as a reference
@@ -213,7 +217,15 @@ func createTxIn(outpoint *wire.OutPoint) *wire.TxIn {
 // createTxOut generates a TxOut that can be added to a transaction. 
 func createTxOut(inCoin int64, addr btcutil.Address) *wire.TxOut {
 	// Pay the minimum network fee so that nodes will broadcast the tx.
-	outCoin := inCoin - TX_FEE
+	outCoin := *amount
+  fmt.Printf("inCoin: %v", inCoin)
+  if outCoin == 0 {
+    log.Fatal("You probably don't want to transfer 0 satoshis")
+  }
+  if outCoin > inCoin - TX_FEE {
+    log.Fatal("Can't complete transaction--the request amount" +
+    " is larger than available funds after transaction fee")
+  }
 	// Take the address and generate a PubKeyScript out of it
 	script, err := txscript.PayToAddrScript(addr)
 	if err != nil {
